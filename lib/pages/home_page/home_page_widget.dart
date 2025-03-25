@@ -29,6 +29,8 @@ class _HomePageWidgetState extends State<HomePageWidget>
   int _loadAttempts = 0;
   Timer? _loadTimeoutTimer;
   late AnimationController _animationController;
+  // Variable para rastrear el estado de la orientación
+  bool _isPortraitLocked = false;
 
   @override
   void initState() {
@@ -76,6 +78,8 @@ class _HomePageWidgetState extends State<HomePageWidget>
   void dispose() {
     _animationController.dispose();
     _loadTimeoutTimer?.cancel();
+    // Asegurarse de liberar la orientación al cerrar la aplicación
+    _unlockOrientation();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: [SystemUiOverlay.top, SystemUiOverlay.bottom]);
     super.dispose();
@@ -166,6 +170,9 @@ class _HomePageWidgetState extends State<HomePageWidget>
 
             // Inject JavaScript to detect DOM loaded and notify
             _injectTouchEnhancements();
+            
+            // Inyectar el código para la API de orientación
+            _injectOrientationAPI();
           },
           onWebResourceError: (WebResourceError error) {
             developer.log(
@@ -205,6 +212,145 @@ class _HomePageWidgetState extends State<HomePageWidget>
       }
     } catch (e) {
       developer.log('Error al verificar contenido: $e', name: 'OralB App');
+    }
+  }
+
+  // Inject JavaScript for Screen Orientation API
+  void _injectOrientationAPI() {
+    _webViewController.runJavaScript('''
+      // Función para verificar soporte
+      window.isOrientationSupported = function() {
+        return (screen && screen.orientation && typeof screen.orientation.lock === 'function');
+      };
+      
+      // Función para bloquear la orientación en portrait
+      window.lockToPortrait = function() {
+        if (!window.isOrientationSupported()) {
+          return Promise.reject('API de orientación no soportada');
+        }
+        
+        return screen.orientation.lock('portrait')
+          .then(() => {
+            console.log('Orientación bloqueada en portrait');
+            return true;
+          })
+          .catch(error => {
+            console.error('Error al bloquear orientación: ' + error);
+            return Promise.reject(error);
+          });
+      };
+      
+      // Función para desbloquear la orientación
+      window.unlockOrientation = function() {
+        if (!window.isOrientationSupported()) {
+          return Promise.reject('API de orientación no soportada');
+        }
+        
+        return screen.orientation.unlock()
+          .then(() => {
+            console.log('Orientación desbloqueada');
+            return true;
+          })
+          .catch(error => {
+            console.error('Error al desbloquear orientación: ' + error);
+            return Promise.reject(error);
+          });
+      };
+      
+      // Verificar soporte al inicio
+      const orientationSupported = window.isOrientationSupported();
+      console.log('Soporte de API de orientación: ' + orientationSupported);
+      
+      // Para compatibilidad con navegadores más antiguos, intentamos agregar fallbacks
+      if (!orientationSupported) {
+        console.log('Intentando fallbacks para orientación...');
+        
+        // Intentar con CSS para orientación
+        const orientationStyle = document.createElement('style');
+        orientationStyle.textContent = `
+          @media screen and (orientation: landscape) {
+            html, body {
+              transform: rotate(-90deg);
+              transform-origin: left top;
+              width: 100vh;
+              height: 100vw;
+              overflow-x: hidden;
+              position: absolute;
+              top: 100%;
+              left: 0;
+            }
+          }
+        `;
+        document.head.appendChild(orientationStyle);
+      }
+    ''');
+  }
+
+  // Función para bloquear la orientación a portrait
+  Future<bool> _lockToPortrait() async {
+    try {
+      final result = await _webViewController.runJavaScriptReturningResult(
+        'window.lockToPortrait().then(() => true).catch(e => {console.error(e); return false;})',
+      );
+      
+      final success = result.toString() == 'true';
+      setState(() {
+        _isPortraitLocked = success;
+      });
+      
+      if (success) {
+        _showToast('Orientación fijada en vertical', ToastType.SUCCESS);
+        developer.log('Orientación bloqueada en portrait', name: 'OralB App');
+      } else {
+        _showToast('No se pudo fijar la orientación', ToastType.WARNING);
+        developer.log('Error al bloquear orientación', name: 'OralB App');
+      }
+      
+      return success;
+    } catch (e) {
+      developer.log('Error en _lockToPortrait: $e', name: 'OralB App');
+      _showToast('Error: $e', ToastType.ERROR);
+      return false;
+    }
+  }
+
+  // Función para desbloquear la orientación
+  Future<bool> _unlockOrientation() async {
+    if (!_initialLoadComplete) return false;
+    
+    try {
+      final result = await _webViewController.runJavaScriptReturningResult(
+        'window.unlockOrientation().then(() => true).catch(e => {console.error(e); return false;})',
+      );
+      
+      final success = result.toString() == 'true';
+      setState(() {
+        _isPortraitLocked = !success;
+      });
+      
+      if (success) {
+        _showToast('Orientación liberada', ToastType.INFO);
+        developer.log('Orientación desbloqueada', name: 'OralB App');
+      }
+      
+      return success;
+    } catch (e) {
+      developer.log('Error en _unlockOrientation: $e', name: 'OralB App');
+      return false;
+    }
+  }
+
+  // Función para comprobar si la API está soportada
+  Future<bool> _isOrientationAPISupported() async {
+    try {
+      final result = await _webViewController.runJavaScriptReturningResult(
+        'window.isOrientationSupported()',
+      );
+      return result.toString() == 'true';
+    } catch (e) {
+      developer.log('Error al verificar soporte de orientación: $e', 
+          name: 'OralB App');
+      return false;
     }
   }
 
@@ -470,6 +616,79 @@ class _HomePageWidgetState extends State<HomePageWidget>
     );
   }
 
+  // Método para construir el botón de orientación
+  Widget _buildOrientationButton() {
+    return Positioned(
+      top: 20,
+      right: 20,
+      child: Material(
+        color: Colors.transparent,
+        child: Tooltip(
+          message: _isPortraitLocked 
+              ? 'Desbloquear orientación de pantalla' 
+              : 'Fijar orientación vertical (portrait)',
+          child: InkWell(
+            onTap: () async {
+              final isSupported = await _isOrientationAPISupported();
+              
+              if (!isSupported) {
+                _showToast(
+                  'Su navegador no soporta la API de orientación', 
+                  ToastType.WARNING
+                );
+                return;
+              }
+              
+              if (_isPortraitLocked) {
+                await _unlockOrientation();
+              } else {
+                await _lockToPortrait();
+              }
+            },
+            borderRadius: BorderRadius.circular(30),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _isPortraitLocked 
+                    ? Colors.green.withOpacity(0.8) 
+                    : Colors.blue.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    spreadRadius: 1,
+                    blurRadius: 3,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _isPortraitLocked 
+                        ? Icons.screen_lock_portrait 
+                        : Icons.screen_rotation,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isPortraitLocked ? 'Vertical fijo' : 'Fijar vertical',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -485,6 +704,11 @@ class _HomePageWidgetState extends State<HomePageWidget>
                 child: Stack(
                   children: [
                     WebViewWidget(controller: _webViewController),
+                    
+                    // Botón de orientación
+                    if (_initialLoadComplete)
+                      _buildOrientationButton(),
+                    
                     Positioned(
                       bottom: 20,
                       right: 20,
