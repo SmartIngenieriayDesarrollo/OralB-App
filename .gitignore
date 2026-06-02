@@ -49,3 +49,22 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/app/.cxx
+
+# Sensitive files
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+android/key.properties
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
+
+# AI or assistant instruction files
+AGENTS.md
+.github/copilot-instructions.md
+.github/instructions/**
