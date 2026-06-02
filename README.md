@@ -1,4 +1,4 @@
-# OralB App
+# SmartPOS Cloud
 
 Aplicación Flutter (WebView) para cargar la plataforma web de OralB en Android, iOS y Web.
 
