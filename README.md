@@ -1,6 +1,6 @@
 # SmartPOS Cloud
 
-Aplicación Flutter (WebView) para cargar la plataforma web de Oral-B en Android, iOS y Web.
+Aplicación Flutter (WebView) para cargar la plataforma web del proyecto en Android, iOS y Web.
 
 ## Tecnologías
 
